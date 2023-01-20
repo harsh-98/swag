@@ -783,7 +783,7 @@ func findTypeDef(importPath, typeName string) (*ast.TypeSpec, error) {
 	return nil, fmt.Errorf("type spec not found")
 }
 
-var responsePattern = regexp.MustCompile(`^([\w,]+)\s+([\w{}]+)\s+([\w\-.\\{}=,\[\s\]]+)\s*(".*)?`)
+var responsePattern = regexp.MustCompile(`^([\w,]+)\s+([\w{}]+)\s+([\w\-.\\{}=\|\:,\[\s\]]+)\s*(".*)?`)
 
 // ResponseType{data1=Type1,data2=Type2}.
 var combinedPattern = regexp.MustCompile(`^([\w\-./\[\]]+){(.*)}$`)
@@ -806,13 +806,25 @@ func parseObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec
 		return PrimitiveSchema(refType), nil
 	case IsPrimitiveType(refType):
 		return PrimitiveSchema(refType), nil
+	case strings.HasPrefix(refType, "str:"):
+		return &spec.Schema{SchemaProps: spec.SchemaProps{
+			Type:    []string{"string"},
+			Default: refType[4:],
+		}}, nil
 	case strings.HasPrefix(refType, "[]"):
-		schema, err := parseObjectSchema(parser, refType[2:], astFile)
-		if err != nil {
-			return nil, err
+		oneOfSchema := spec.Schema{}
+		for _, elem := range parseFields(refType[2:], '|') {
+			schema, err := parseObjectSchema(parser, elem, astFile)
+			if err != nil {
+				return nil, err
+			}
+			oneOfSchema.OneOf = append(oneOfSchema.OneOf, *schema)
 		}
-
-		return spec.ArrayProperty(schema), nil
+		if len(oneOfSchema.OneOf) == 1 {
+			return spec.ArrayProperty(&oneOfSchema.OneOf[0]), nil
+		} else {
+			return spec.ArrayProperty(&oneOfSchema), nil
+		}
 	case strings.HasPrefix(refType, "map["):
 		// ignore key type
 		idx := strings.Index(refType, "]")
@@ -847,7 +859,7 @@ func parseObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec
 	}
 }
 
-func parseFields(s string) []string {
+func parseFields(s string, ch rune) []string {
 	nestLevel := 0
 
 	return strings.FieldsFunc(s, func(char rune) bool {
@@ -861,7 +873,7 @@ func parseFields(s string) []string {
 			return false
 		}
 
-		return char == ',' && nestLevel == 0
+		return char == ch && nestLevel == 0
 	})
 }
 
@@ -876,7 +888,7 @@ func parseCombinedObjectSchema(parser *Parser, refType string, astFile *ast.File
 		return nil, err
 	}
 
-	fields, props := parseFields(matches[2]), map[string]spec.Schema{}
+	fields, props := parseFields(matches[2], ','), map[string]spec.Schema{}
 
 	for _, field := range fields {
 		keyVal := strings.SplitN(field, "=", 2)
