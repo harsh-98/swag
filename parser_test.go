@@ -253,6 +253,10 @@ func TestParser_ParseGeneralApiInfo(t *testing.T) {
             }
         }
     },
+    "externalDocs": {
+        "description": "OpenAPI",
+        "url": "https://swagger.io/resources/open-api"
+    },
     "x-google-endpoints": [
         {
             "allowCors": true,
@@ -337,6 +341,10 @@ func TestParser_ParseGeneralApiInfoTemplated(t *testing.T) {
                 "write": " Grants write access"
             }
         }
+    },
+    "externalDocs": {
+        "description": "OpenAPI",
+        "url": "https://swagger.io/resources/open-api"
     },
     "x-google-endpoints": [
         {
@@ -2149,11 +2157,26 @@ func TestParseTypeOverrides(t *testing.T) {
 	assert.Equal(t, string(expected), string(b))
 }
 
+func TestGlobalSecurity(t *testing.T) {
+	t.Parallel()
+
+	searchDir := "testdata/global_security"
+	p := New()
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	assert.NoError(t, err)
+
+	expected, err := os.ReadFile(filepath.Join(searchDir, "expected.json"))
+	assert.NoError(t, err)
+
+	b, _ := json.MarshalIndent(p.swagger, "", "  ")
+	assert.Equal(t, string(expected), string(b))
+}
+
 func TestParseNested(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/nested"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.NoError(t, err)
 
@@ -2168,7 +2191,7 @@ func TestParseDuplicated(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/duplicated"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.Errorf(t, err, "duplicated @id declarations successfully found")
 }
@@ -2177,7 +2200,7 @@ func TestParseDuplicatedOtherMethods(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/duplicated2"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.Errorf(t, err, "duplicated @id declarations successfully found")
 }
@@ -2186,7 +2209,7 @@ func TestParseDuplicatedFunctionScoped(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/duplicated_function_scoped"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.Errorf(t, err, "duplicated @id declarations successfully found")
 }
@@ -2195,7 +2218,7 @@ func TestParseConflictSchemaName(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/conflict_name"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.NoError(t, err)
 	b, _ := json.MarshalIndent(p.swagger, "", "    ")
@@ -2207,7 +2230,7 @@ func TestParseConflictSchemaName(t *testing.T) {
 func TestParseExternalModels(t *testing.T) {
 	searchDir := "testdata/external_models/main"
 	mainAPIFile := "main.go"
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.NoError(t, err)
 	b, _ := json.MarshalIndent(p.swagger, "", "    ")
@@ -2219,7 +2242,7 @@ func TestParseExternalModels(t *testing.T) {
 
 func TestParseGoList(t *testing.T) {
 	mainAPIFile := "main.go"
-	p := New(ParseUsingGoList(true), SetParseDependency(true))
+	p := New(ParseUsingGoList(true), SetParseDependency(1))
 	go111moduleEnv := os.Getenv("GO111MODULE")
 
 	cases := []struct {
@@ -2431,7 +2454,7 @@ type ResponseWrapper struct {
       }
    }
 }`
-	parser := New(SetParseDependency(true))
+	parser := New(SetParseDependency(1))
 
 	_ = parser.packages.ParseFile("api", "api/api.go", src, ParseAll)
 
@@ -2897,6 +2920,40 @@ func Test3(){
 	assert.NotNil(t, val.Delete)
 }
 
+func TestParser_ParseRouterApiMultiplePathsWithMultipleParams(t *testing.T) {
+	t.Parallel()
+
+	src := `
+package test
+
+// @Success 200
+// @Param group_id path int true "Group ID"
+// @Param user_id  path int true "User ID"
+// @Router /examples/groups/{group_id}/user/{user_id}/address [get]
+// @Router /examples/user/{user_id}/address [get]
+func Test(){
+}
+`
+	p := New()
+	err := p.packages.ParseFile("api", "api/api.go", src, ParseAll)
+	assert.NoError(t, err)
+
+	err = p.packages.RangeFiles(p.ParseRouterAPIInfo)
+	assert.NoError(t, err)
+
+	ps := p.swagger.Paths.Paths
+
+	val, ok := ps["/examples/groups/{group_id}/user/{user_id}/address"]
+
+	assert.True(t, ok)
+	assert.Equal(t, 2, len(val.Get.Parameters))
+
+	val, ok = ps["/examples/user/{user_id}/address"]
+
+	assert.True(t, ok)
+	assert.Equal(t, 1, len(val.Get.Parameters))
+}
+
 // func TestParseDeterministic(t *testing.T) {
 // 	mainAPIFile := "main.go"
 // 	for _, searchDir := range []string{
@@ -3065,7 +3122,7 @@ func TestParseOutsideDependencies(t *testing.T) {
 	searchDir := "testdata/pare_outside_dependencies"
 	mainAPIFile := "cmd/main.go"
 
-	p := New(SetParseDependency(true))
+	p := New(SetParseDependency(1))
 	if err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth); err != nil {
 		t.Error("Failed to parse api: " + err.Error())
 	}
@@ -3239,6 +3296,30 @@ func Fun()  {
 	assert.Equal(t, "#/definitions/Teacher", path.Get.Parameters[0].Schema.Ref.String())
 	ref = path.Get.Responses.ResponsesProps.StatusCodeResponses[200].ResponseProps.Schema.Ref
 	assert.Equal(t, "#/definitions/Teacher", ref.String())
+}
+
+func TestParseTabFormattedRenamedStructDefinition(t *testing.T) {
+	t.Parallel()
+
+	src := "package main\n" +
+		"\n" +
+		"type Child struct {\n" +
+		"\tName string\n" +
+		"}\t//\t@name\tPupil\n" +
+		"\n" +
+		"// @Success 200 {object} Pupil\n" +
+		"func Fun()  { }"
+
+	p := New()
+	_ = p.packages.ParseFile("api", "api/api.go", src, ParseAll)
+	_, err := p.packages.ParseTypes()
+	assert.NoError(t, err)
+
+	err = p.packages.RangeFiles(p.ParseRouterAPIInfo)
+	assert.NoError(t, err)
+
+	_, ok := p.swagger.Definitions["Pupil"]
+	assert.True(t, ok)
 }
 
 func TestParseFunctionScopedStructDefinition(t *testing.T) {
@@ -3935,4 +4016,57 @@ func TestParser_parseExtension(t *testing.T) {
 		})
 
 	}
+}
+
+func TestParser_collectionFormat(t *testing.T) {
+	tests := []struct {
+		name   string
+		parser *Parser
+		format string
+	}{
+		{
+			name:   "no collectionFormat",
+			parser: New(),
+			format: "",
+		},
+		{
+			name:   "multi collectionFormat",
+			parser: New(SetCollectionFormat("multi")),
+			format: "multi",
+		},
+		{
+			name:   "ssv collectionFormat",
+			parser: New(SetCollectionFormat("ssv")),
+			format: "ssv",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.parser.collectionFormatInQuery != tt.format {
+				t.Errorf("Parser.collectionFormatInQuery = %s, want %s", tt.parser.collectionFormatInQuery, tt.format)
+			}
+		})
+	}
+}
+
+func TestParser_skipPackageByPrefix(t *testing.T) {
+	t.Parallel()
+
+	parser := New()
+
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag"))
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag/cmd"))
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag/gen"))
+
+	parser = New(SetPackagePrefix("github.com/swaggo/swag/cmd"))
+
+	assert.True(t, parser.skipPackageByPrefix("github.com/swaggo/swag"))
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag/cmd"))
+	assert.True(t, parser.skipPackageByPrefix("github.com/swaggo/swag/gen"))
+
+	parser = New(SetPackagePrefix("github.com/swaggo/swag/cmd,github.com/swaggo/swag/gen"))
+
+	assert.True(t, parser.skipPackageByPrefix("github.com/swaggo/swag"))
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag/cmd"))
+	assert.False(t, parser.skipPackageByPrefix("github.com/swaggo/swag/gen"))
 }

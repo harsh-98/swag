@@ -261,6 +261,67 @@ func TestGen_BuildDescriptionWithQuotes(t *testing.T) {
 	assert.JSONEq(t, string(expectedJSON), jsonOutput)
 }
 
+func TestGen_BuildDocCustomDelims(t *testing.T) {
+	config := &Config{
+		SearchDir:          "../testdata/delims",
+		MainAPIFile:        "./main.go",
+		OutputDir:          "../testdata/delims/docs",
+		OutputTypes:        outputTypes,
+		MarkdownFilesDir:   "../testdata/delims",
+		InstanceName:       "CustomDelims",
+		LeftTemplateDelim:  "{%",
+		RightTemplateDelim: "%}",
+	}
+
+	require.NoError(t, New().Build(config))
+
+	expectedFiles := []string{
+		filepath.Join(config.OutputDir, "CustomDelims_docs.go"),
+		filepath.Join(config.OutputDir, "CustomDelims_swagger.json"),
+		filepath.Join(config.OutputDir, "CustomDelims_swagger.yaml"),
+	}
+	for _, expectedFile := range expectedFiles {
+		if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+	}
+
+	cmd := exec.Command("go", "build", "-buildmode=plugin", "github.com/swaggo/swag/testdata/delims")
+
+	cmd.Dir = config.SearchDir
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		require.NoError(t, err, string(output))
+	}
+
+	p, err := plugin.Open(filepath.Join(config.SearchDir, "delims.so"))
+	if err != nil {
+		require.NoError(t, err)
+	}
+
+	defer os.Remove("delims.so")
+
+	readDoc, err := p.Lookup("ReadDoc")
+	if err != nil {
+		require.NoError(t, err)
+	}
+
+	jsonOutput := readDoc.(func() string)()
+
+	var jsonDoc interface{}
+	if err := json.Unmarshal([]byte(jsonOutput), &jsonDoc); err != nil {
+		require.NoError(t, err)
+	}
+
+	expectedJSON, err := os.ReadFile(filepath.Join(config.SearchDir, "expected.json"))
+	if err != nil {
+		require.NoError(t, err)
+	}
+
+	assert.JSONEq(t, string(expectedJSON), jsonOutput)
+}
+
 func TestGen_jsonIndent(t *testing.T) {
 	config := &Config{
 		SearchDir:          searchDir,
@@ -600,7 +661,7 @@ func TestGen_cgoImports(t *testing.T) {
 		OutputDir:          "../testdata/simple_cgo/docs",
 		OutputTypes:        outputTypes,
 		PropNamingStrategy: "",
-		ParseDependency:    true,
+		ParseDependency:    1,
 	}
 
 	assert.NoError(t, New().Build(config))
@@ -831,6 +892,84 @@ func TestGen_ErrorAndInterface(t *testing.T) {
 	if err != nil {
 		require.NoError(t, err)
 	}
+
+	assert.JSONEq(t, string(expectedJSON), string(jsonOutput))
+}
+
+func TestGen_StateAdmin(t *testing.T) {
+	config := &Config{
+		SearchDir:          "../testdata/state",
+		MainAPIFile:        "./main.go",
+		OutputDir:          "../testdata/state/docs",
+		OutputTypes:        outputTypes,
+		PropNamingStrategy: "",
+		State:              "admin",
+	}
+
+	assert.NoError(t, New().Build(config))
+
+	expectedFiles := []string{
+		filepath.Join(config.OutputDir, "admin_docs.go"),
+		filepath.Join(config.OutputDir, "admin_swagger.json"),
+		filepath.Join(config.OutputDir, "admin_swagger.yaml"),
+	}
+	t.Cleanup(func() {
+		for _, expectedFile := range expectedFiles {
+			_ = os.Remove(expectedFile)
+		}
+	})
+
+	// check files
+	for _, expectedFile := range expectedFiles {
+		if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+	}
+
+	// check content
+	jsonOutput, err := os.ReadFile(filepath.Join(config.OutputDir, "admin_swagger.json"))
+	require.NoError(t, err)
+	expectedJSON, err := os.ReadFile(filepath.Join(config.SearchDir, "admin_expected.json"))
+	require.NoError(t, err)
+
+	assert.JSONEq(t, string(expectedJSON), string(jsonOutput))
+}
+
+func TestGen_StateUser(t *testing.T) {
+	config := &Config{
+		SearchDir:          "../testdata/state",
+		MainAPIFile:        "./main.go",
+		OutputDir:          "../testdata/state/docs",
+		OutputTypes:        outputTypes,
+		PropNamingStrategy: "",
+		State:              "user",
+	}
+
+	assert.NoError(t, New().Build(config))
+
+	expectedFiles := []string{
+		filepath.Join(config.OutputDir, "user_docs.go"),
+		filepath.Join(config.OutputDir, "user_swagger.json"),
+		filepath.Join(config.OutputDir, "user_swagger.yaml"),
+	}
+	t.Cleanup(func() {
+		for _, expectedFile := range expectedFiles {
+			_ = os.Remove(expectedFile)
+		}
+	})
+
+	// check files
+	for _, expectedFile := range expectedFiles {
+		if _, err := os.Stat(expectedFile); os.IsNotExist(err) {
+			require.NoError(t, err)
+		}
+	}
+
+	// check content
+	jsonOutput, err := os.ReadFile(filepath.Join(config.OutputDir, "user_swagger.json"))
+	require.NoError(t, err)
+	expectedJSON, err := os.ReadFile(filepath.Join(config.SearchDir, "user_expected.json"))
+	require.NoError(t, err)
 
 	assert.JSONEq(t, string(expectedJSON), string(jsonOutput))
 }
